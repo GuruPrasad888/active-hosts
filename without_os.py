@@ -110,7 +110,7 @@ def log_device_info_add(device, json_file):
 def log_device_info_remove(device, json_file):
     Time = datetime.now().strftime('%d-%m-%Y %H:%M:%S') 
     
-    connected_time = get_connected_time(device.get('IP Address', ''), device.get('MAC Address', ''), 'Active.json')
+    connected_time = get_connected_time(device.get('IP Address', ''), device.get('MAC Address', ''), f'{file_storage_path}/Active.json')
 
     with open(json_file, 'r') as file:
         data = json.load(file)

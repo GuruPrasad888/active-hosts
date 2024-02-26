@@ -5,10 +5,12 @@ import json
 
 app = FastAPI()
 
+file_storage_path = "/home/guru/ah-files"
+
 @app.get("/active")
 def read_active():
     try:
-        with open("Active.json", "r") as file:
+        with open(f'{file_storage_path}/Active.json', "r") as file:
             data = json.load(file)
         return JSONResponse(content=data, status_code=200)
     except FileNotFoundError:
@@ -17,7 +19,7 @@ def read_active():
 @app.get("/disconnected")
 def read_disconnected():
     try:
-        with open("Disconnected.json", "r") as file:
+        with open(f'{file_storage_path}/Disconnected.json', "r") as file:
             data = json.load(file)
         return JSONResponse(content=data, status_code=200)
     except FileNotFoundError:
@@ -27,11 +29,11 @@ def read_disconnected():
 def read_all():
     try:
         current_data = []
-        with open("Active.json", "r") as active_file:
+        with open(f'{file_storage_path}/Active.json', "r") as active_file:
             current_data = json.load(active_file).get("Active Devices", [])
 
         disconnected_data = []
-        with open("Disconnected.json", "r") as disconnected_file:
+        with open(f'{file_storage_path}/Disconnected.json', "r") as disconnected_file:
             disconnected_data = json.load(disconnected_file).get("Disconnected Devices", [])
 
         return JSONResponse(content={"Active Devices": current_data, "Disconnected Devices": disconnected_data},
