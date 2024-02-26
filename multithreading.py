@@ -5,28 +5,36 @@ import re
 import threading 
 import time
 
-
-interface = "ens37"
 lease_file_path = "/var/lib/misc/dnsmasq.leases"
 file_storage_path = "/home/guru/ah-files"
 
 
-def get_subnet(interface_name):
+def is_interface_up(interface_name):
     try:
-        result = subprocess.run(["ip", "-j", "-o", "addr", "show", interface_name], capture_output=True, text=True, check=True)
-        data = json.loads(result.stdout)
-        local_ip = data[0]["addr_info"][0]["local"]
-        prefix_len = data[0]["addr_info"][0]["prefixlen"]
-        subnet = f"{local_ip}/{prefix_len}"
-        return subnet
+        result = subprocess.run(['ip', 'a', 'show', interface_name], capture_output=True, text=True)
+        # Check if the output contains 'state UP' in the status section
+        return 'state UP' in result.stdout
+    except Exception as e:
+        return False
 
-    except subprocess.CalledProcessError as e:
-        print(f"Error executing 'ip' command: {e}")
-        return None
-    except (json.JSONDecodeError, IndexError, KeyError) as e:
-        print(f"Error parsing JSON output: {e}")
-        return None
+def get_subnet(interface_name):
+    if is_interface_up:
+        try:
+            result = subprocess.run(["ip", "-j", "-o", "addr", "show", interface_name], capture_output=True, text=True, check=True)
+            data = json.loads(result.stdout)
+            local_ip = data[0]["addr_info"][0]["local"]
+            prefix_len = data[0]["addr_info"][0]["prefixlen"]
+            subnet = f"{local_ip}/{prefix_len}"
+            return subnet
 
+        except subprocess.CalledProcessError as e:
+            print(f"Error executing 'ip' command: {e}")
+            return None
+        except (json.JSONDecodeError, IndexError, KeyError) as e:
+            print(f"Error parsing JSON output: {e}")
+            return None
+    else:
+        return
 
 def get_current_devices(subnet):
     result = subprocess.run(["sudo", "nmap", "-sn", subnet], capture_output=True, text=True)
@@ -167,24 +175,23 @@ def monitor_interface(interface):
                         json.dump(data, json_file, indent=2)
 
             previous_devices = current_devices
-            time.sleep(60)  # Sleep for 60 seconds before checking again
+            time.sleep(5) 
 
     except KeyboardInterrupt:
         pass
 
 def main():
-    initialize_json_files('ens33')
     initialize_json_files('ens37')
+    initialize_json_files('ens38')
 
-    # Create a separate thread for each interface
-    thread1 = threading.Thread(target=monitor_interface, args=('ens33',))
-    thread2 = threading.Thread(target=monitor_interface, args=('ens37',))
+    thread1 = threading.Thread(target=monitor_interface, args=('ens37',))
+    thread2 = threading.Thread(target=monitor_interface, args=('ens38',))
 
-    # Start the threads
+
     thread1.start()
     thread2.start()
 
-    # Wait for both threads to finish
+
     thread1.join()
     thread2.join()
 
