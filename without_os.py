@@ -6,6 +6,7 @@ import re
 
 interface = "ens37"
 lease_file_path = "/var/lib/misc/dnsmasq.leases"
+file_storage_path = "/home/guru/ah-files"
 
 
 def get_subnet(interface_name):
@@ -125,16 +126,12 @@ def log_device_info_remove(device, json_file):
     with open(json_file, 'w') as file:
         json.dump(data, file, indent=2)
 
-
-
 def initialize_json_files():
-    for json_file in ['Active.json', 'Disconnected.json']:
+    for json_file in [f'{file_storage_path}/Active.json', f'{file_storage_path}/Disconnected.json']:
         with open(json_file, 'w') as file:
-            json.dump({json_file.split('.')[0] + ' Devices': []}, file, indent=2)  # Initializing JSON file
-
+            json.dump({json_file.split('/')[-1].split('.')[0] + ' Devices': []}, file, indent=2)
 
 def main():
-
     initialize_json_files()
     subnet = get_subnet(interface)
     previous_devices = []
@@ -146,25 +143,25 @@ def main():
 
             if new_devices:
                 for device in new_devices:               
-                    log_device_info_add(device, 'Active.json')     
-                    with open('Disconnected.json', 'r') as json_file:
+                    log_device_info_add(device, f'{file_storage_path}/Active.json')     
+                    with open(f'{file_storage_path}/Disconnected.json', 'r') as json_file:
                         data = json.load(json_file)
                     data['Disconnected Devices'] = [entry for entry in data['Disconnected Devices'] if
                                                     entry['IP Address'] != device['IP Address'] and
                                                     entry['MAC Address'] != device['MAC Address']]
 
-                    with open('Disconnected.json', 'w') as json_file:
+                    with open(f'{file_storage_path}/Disconnected.json', 'w') as json_file:
                         json.dump(data, json_file, indent=2)
 
             if removed_devices:
                 for device in removed_devices:
-                    log_device_info_remove(device, 'Disconnected.json')
-                    with open('Active.json', 'r') as json_file:
+                    log_device_info_remove(device, f'{file_storage_path}/Disconnected.json')
+                    with open(f'{file_storage_path}/Active.json', 'r') as json_file:
                         data = json.load(json_file)
                     data['Active Devices'] = [entry for entry in data['Active Devices'] if
                                               entry['IP Address'] != device['IP Address'] and
                                               entry['MAC Address'] != device['MAC Address']]
-                    with open('Active.json', 'w') as json_file:
+                    with open(f'{file_storage_path}/Active.json', 'w') as json_file:
                         json.dump(data, json_file, indent=2)
 
             previous_devices = current_devices
