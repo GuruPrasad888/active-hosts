@@ -15,6 +15,8 @@ import threading
 interface = "ens37"
 lease_file_path = "/var/lib/misc/dnsmasq.leases"
 output_file = "output.txt"
+file_storage_path = "/home/guru/ah-files"
+
 
 DATABASE.load()
 
@@ -123,7 +125,7 @@ def log_device_info_remove(device, json_file):
     Time = datetime.now().strftime('%d-%m-%Y %H:%M:%S')
     ip_address = device['IP Address']
     os_info = get_os_from_output_file(ip_address, output_file)
-    connected_time = get_connected_time(device.get('IP Address', ''), device.get('MAC Address', ''), 'Active.json')
+    connected_time = get_connected_time(device.get('IP Address', ''), device.get('MAC Address', ''), f'{file_storage_path}/Active.json')
 
     
     with open(json_file, 'r') as file:
@@ -142,7 +144,7 @@ def log_device_info_remove(device, json_file):
 
 
 def initialize_json_files():
-    for json_file in ['Active.json', 'Disconnected.json']:
+    for json_file in [f'{file_storage_path}/Active.json', f'{file_storage_path}/Disconnected.json']:
         with open(json_file, 'w') as file:
             json.dump({json_file.split('.')[0] + ' Devices': []}, file, indent=2)  # Initializing JSON file
 
@@ -150,7 +152,7 @@ def initialize_json_files():
 def update_unknown_os(active_json, output_file):
     try:
         # Load the content of Active.json
-        with open(active_json, 'r') as file:
+        with open(f'{file_storage_path}/Active.json', 'r') as file:
             data = json.load(file)
 
         # Iterate through the 'Active Devices'
@@ -162,11 +164,11 @@ def update_unknown_os(active_json, output_file):
                 device['OS'] = new_os
 
         # Write the updated data back to Active.json
-        with open(active_json, 'w') as file:
+        with open(f'{file_storage_path}/Active.json', 'w') as file:
             json.dump(data, file, indent=2)
 
     except FileNotFoundError:
-        print(f"Error: {active_json} not found")
+        print(f"Error: {f'{file_storage_path}/Active.json'} not found")
     except Exception as e:
         print(f"Error: {e}")
 
@@ -220,7 +222,7 @@ def remove_ip_address_and_os(ip_address, output_file):
             file.writelines(updated_lines)
 
     except FileNotFoundError:
-        print(f"Error: {output_file} not found")
+        print(f"Error: {f'{file_storage_path}/{output_file}'} not found")
     except Exception as e:
         print(f"Error: {e}")
 
@@ -235,7 +237,7 @@ def handle_packet(packet: ScapyPacket) -> None:
     
     ip_address = packet[ip_layer].src
 
-    if not is_ip_in_file(ip_address, output_file):  # Check if the IP address is already in the file
+    if not is_ip_in_file(ip_address, f'{file_storage_path}/{output_file}'):  # Check if the IP address is already in the file
 
         tcp_layer = packet.getlayer(TCP)
 
@@ -251,7 +253,7 @@ def handle_packet(packet: ScapyPacket) -> None:
                     
                     os_info = tcp_result.match.record.label.name
                                         
-                    with open(output_file, 'a') as text_file:       # Append the data to the text file
+                    with open(f'{file_storage_path}/{output_file}', 'a') as text_file:       # Append the data to the text file
                         text_file.write(f"{ip_address} : {os_info}\n")
     else:
         return
@@ -270,29 +272,29 @@ def main():
 
             if new_devices:
                 for device in new_devices:               
-                    log_device_info_add(device, 'Active.json')     
-                    with open('Disconnected.json', 'r') as json_file:
+                    log_device_info_add(device, f'{file_storage_path}/Active.json')     
+                    with open(f'{file_storage_path}/Disconnected.json', 'r') as json_file:
                         data = json.load(json_file)
                     data['Disconnected Devices'] = [entry for entry in data['Disconnected Devices'] if
                                                     entry['IP Address'] != device['IP Address'] and
                                                     entry['MAC Address'] != device['MAC Address']]
 
-                    with open('Disconnected.json', 'w') as json_file:
+                    with open(f'{file_storage_path}/Disconnected.json', 'w') as json_file:
                         json.dump(data, json_file, indent=2)
 
             if removed_devices:
                 for device in removed_devices:
-                    log_device_info_remove(device, 'Disconnected.json')
-                    with open('Active.json', 'r') as json_file:
+                    log_device_info_remove(device, f'{file_storage_path}/Disconnected.json')
+                    with open(f'{file_storage_path}/Active.json', 'r') as json_file:
                         data = json.load(json_file)
                     data['Active Devices'] = [entry for entry in data['Active Devices'] if
                                               entry['IP Address'] != device['IP Address'] and
                                               entry['MAC Address'] != device['MAC Address']]
-                    with open('Active.json', 'w') as json_file:
+                    with open(f'{file_storage_path}/Active.json', 'w') as json_file:
                         json.dump(data, json_file, indent=2)
 
             previous_devices = current_devices
-            update_unknown_os('Active.json', output_file)
+            update_unknown_os(f'{file_storage_path}/Active.json', f'{file_storage_path}/{output_file}')
    
     except Exception as e:
         print(f"Error in main thread: {e}")
