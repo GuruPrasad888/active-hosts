@@ -61,7 +61,7 @@ def get_device_name_from_lease(ip_address, mac_address):
 
         for line in leases:
             values = line.strip().split()
-            if len(values) >= 4 and values[2] == ip_address and values[1].lower() == mac_address:   # Check if IP address and MAC address match
+            if len(values) >= 4 and values[2] == ip_address and values[1].lower() == mac_address:
                 device_name = values[3]
                 return device_name
 

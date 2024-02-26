@@ -2,7 +2,6 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 import json
 
-
 app = FastAPI()
 
 file_storage_path = "/home/guru/ah-files"
