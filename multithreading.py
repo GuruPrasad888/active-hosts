@@ -7,34 +7,31 @@ import time
 
 lease_file_path = "/var/lib/misc/dnsmasq.leases"
 file_storage_path = "/home/guru/ah-files"
+interfaces = ["ens37","ens38"]
 
 
 def is_interface_up(interface_name):
     try:
         result = subprocess.run(['ip', 'a', 'show', interface_name], capture_output=True, text=True)
-        # Check if the output contains 'state UP' in the status section
-        return 'state UP' in result.stdout
+        return 'state UP' in result.stdout    
     except Exception as e:
         return False
 
 def get_subnet(interface_name):
-    if is_interface_up:
-        try:
-            result = subprocess.run(["ip", "-j", "-o", "addr", "show", interface_name], capture_output=True, text=True, check=True)
-            data = json.loads(result.stdout)
-            local_ip = data[0]["addr_info"][0]["local"]
-            prefix_len = data[0]["addr_info"][0]["prefixlen"]
-            subnet = f"{local_ip}/{prefix_len}"
-            return subnet
+    try:
+        result = subprocess.run(["ip", "-j", "-o", "addr", "show", interface_name], capture_output=True, text=True, check=True)
+        data = json.loads(result.stdout)
+        local_ip = data[0]["addr_info"][0]["local"]
+        prefix_len = data[0]["addr_info"][0]["prefixlen"]
+        subnet = f"{local_ip}/{prefix_len}"
+        return subnet
+    except subprocess.CalledProcessError as e:
+        print(f"Error executing 'ip' command: {e}")
+        return None
+    except (json.JSONDecodeError, IndexError, KeyError) as e:
+        print(f"Error parsing JSON output: {e}")
+        return None
 
-        except subprocess.CalledProcessError as e:
-            print(f"Error executing 'ip' command: {e}")
-            return None
-        except (json.JSONDecodeError, IndexError, KeyError) as e:
-            print(f"Error parsing JSON output: {e}")
-            return None
-    else:
-        return
 
 def get_current_devices(subnet):
     result = subprocess.run(["sudo", "nmap", "-sn", subnet], capture_output=True, text=True)
@@ -117,10 +114,10 @@ def log_device_info_add(device, json_file):
     with open(json_file, 'w') as file:
         json.dump(data, file, indent=2)
 
-def log_device_info_remove(device, json_file):
+def log_device_info_remove(device, json_file,interface):
     Time = datetime.now().strftime('%d-%m-%Y %H:%M:%S') 
     
-    connected_time = get_connected_time(device.get('IP Address', ''), device.get('MAC Address', ''), f'{file_storage_path}/Active.json')
+    connected_time = get_connected_time(device.get('IP Address', ''), device.get('MAC Address', ''), f'{file_storage_path}/Active_{interface}.json')
 
     with open(json_file, 'r') as file:
         data = json.load(file)
@@ -142,14 +139,12 @@ def initialize_json_files(interface):
             json.dump({json_file.split('/')[-1].split('.')[0].split('_')[0] + ' Devices': []}, file, indent=2)
 
 
-def monitor_interface(interface):
-    subnet = get_subnet(interface)
-    previous_devices = []
-
+def process_interface(interface):
     try:
-        while True:
+        while is_interface_up(interface):
+            subnet = get_subnet(interface)
             current_devices = get_current_devices(subnet)
-            new_devices, removed_devices = detect_new_devices(previous_devices, current_devices)
+            new_devices, removed_devices = detect_new_devices(previous_devices.get(interface, []), current_devices)
 
             if new_devices:
                 for device in new_devices:
@@ -165,7 +160,7 @@ def monitor_interface(interface):
 
             if removed_devices:
                 for device in removed_devices:
-                    log_device_info_remove(device, f'{file_storage_path}/Disconnected_{interface}.json')
+                    log_device_info_remove(device, f'{file_storage_path}/Disconnected_{interface}.json',interface)
                     with open(f'{file_storage_path}/Active_{interface}.json', 'r') as json_file:
                         data = json.load(json_file)
                     data['Active Devices'] = [entry for entry in data['Active Devices'] if
@@ -174,26 +169,30 @@ def monitor_interface(interface):
                     with open(f'{file_storage_path}/Active_{interface}.json', 'w') as json_file:
                         json.dump(data, json_file, indent=2)
 
-            previous_devices = current_devices
-            time.sleep(5) 
+            previous_devices[interface] = current_devices
 
     except KeyboardInterrupt:
         pass
 
+
 def main():
-    initialize_json_files('ens37')
-    initialize_json_files('ens38')
 
-    thread1 = threading.Thread(target=monitor_interface, args=('ens37',))
-    thread2 = threading.Thread(target=monitor_interface, args=('ens38',))
+    global previous_devices
+    previous_devices = {}
 
+    threads = []
+    for interface in interfaces:
+        initialize_json_files(f'{interface}')
+        thread = threading.Thread(target=process_interface, args=(interface,))
+        thread.start()
+        threads.append(thread)
 
-    thread1.start()
-    thread2.start()
+    try:
+        for thread in threads:
+            thread.join()
+    except KeyboardInterrupt:
+        pass
 
-
-    thread1.join()
-    thread2.join()
 
 if __name__ == "__main__":
     main()
