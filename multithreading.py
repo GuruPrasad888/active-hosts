@@ -21,10 +21,11 @@ def get_subnet(interface_name):
     try:
         result = subprocess.run(["ip", "-j", "-o", "addr", "show", interface_name], capture_output=True, text=True, check=True)
         data = json.loads(result.stdout)
-        local_ip = data[0]["addr_info"][0]["local"]
-        prefix_len = data[0]["addr_info"][0]["prefixlen"]
-        subnet = f"{local_ip}/{prefix_len}"
-        return subnet
+        if data and data[0]["addr_info"]:
+            local_ip = data[0]["addr_info"][0].get("local", "")
+            prefix_len = data[0]["addr_info"][0].get("prefixlen", "")
+            subnet = f"{local_ip}/{prefix_len}"
+            return subnet
     except subprocess.CalledProcessError as e:
         print(f"Error executing 'ip' command: {e}")
         return None
@@ -32,6 +33,15 @@ def get_subnet(interface_name):
         print(f"Error parsing JSON output: {e}")
         return None
 
+def check_subnet_change(interface):
+    previous_subnet = get_subnet(interface)
+    while is_interface_up(interface):
+        time.sleep(10)  # Check every minute
+        current_subnet = get_subnet(interface)
+        if current_subnet != previous_subnet:
+            print(f"Subnet change detected for {interface}. Clearing entries.")
+            initialize_json_files(interface)
+            previous_subnet = current_subnet
 
 def get_current_devices(subnet):
     result = subprocess.run(["sudo", "nmap", "-sn", subnet], capture_output=True, text=True)
@@ -141,6 +151,9 @@ def initialize_json_files(interface):
 
 def process_interface(interface):
     try:
+        thread = threading.Thread(target=check_subnet_change, args=(interface,))
+        thread.start()
+
         while is_interface_up(interface):
             subnet = get_subnet(interface)
             current_devices = get_current_devices(subnet)
@@ -160,7 +173,7 @@ def process_interface(interface):
 
             if removed_devices:
                 for device in removed_devices:
-                    log_device_info_remove(device, f'{file_storage_path}/Disconnected_{interface}.json',interface)
+                    log_device_info_remove(device, f'{file_storage_path}/Disconnected_{interface}.json', interface)
                     with open(f'{file_storage_path}/Active_{interface}.json', 'r') as json_file:
                         data = json.load(json_file)
                     data['Active Devices'] = [entry for entry in data['Active Devices'] if
@@ -174,9 +187,7 @@ def process_interface(interface):
     except KeyboardInterrupt:
         pass
 
-
 def main():
-
     global previous_devices
     previous_devices = {}
 
@@ -192,7 +203,6 @@ def main():
             thread.join()
     except KeyboardInterrupt:
         pass
-
 
 if __name__ == "__main__":
     main()
