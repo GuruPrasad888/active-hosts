@@ -5,6 +5,7 @@ import re
 import threading 
 import time
 import logging
+import ipaddress
 
 previous_devices = {}
 lock = threading.Lock()
@@ -42,17 +43,34 @@ def get_subnet(interface_name):
         return None
 
 def check_subnet_change(interface):
-    print("-")
     previous_subnet = get_subnet(interface)
-    print(previous_subnet)
     while is_interface_up(interface):
-        time.sleep(10)  # Check every 10 seconds
+        time.sleep(3)  # Check every 3 seconds (adjust as needed)
         current_subnet = get_subnet(interface)
         print(current_subnet)
         if current_subnet != previous_subnet:
+            print(time.time())
             print(f"Subnet change detected for {interface}. Clearing entries.")
-            initialize_json_files(interface)
-            previous_subnet = current_subnet
+            clear_entries_in_active_json(previous_subnet)
+            previous_subnet = current_subnet  # Update previous_subnet with the current subnet
+
+def clear_entries_in_active_json(subnet_to_clear):
+    with lock:
+        with open(f'{file_storage_path}/Active.json', 'r') as json_file:
+            data = json.load(json_file)
+
+        # Remove entries with IP addresses in the previous subnet
+        data['Active Devices'] = [entry for entry in data['Active Devices'] if not is_ip_in_subnet(entry['IP Address'], subnet_to_clear)]
+
+        with open(f'{file_storage_path}/Active.json', 'w') as json_file:
+            json.dump(data, json_file, indent=2)
+
+def is_ip_in_subnet(ip_address, subnet):
+    try:
+        ip_network = ipaddress.IPv4Network(subnet, strict=False)
+        return ipaddress.IPv4Address(ip_address) in ip_network
+    except ValueError:
+        return False
 
 def get_current_devices(subnet):
     if subnet is None:
@@ -161,7 +179,7 @@ def log_device_info_remove(device, json_file):
     with open(json_file, 'w') as file:
         json.dump(data, file, indent=2)
 
-    log_message = f"{device.get('IP Address', '')}, {device.get('MAC Address', '')}, {device.get('Device Name', '')}, added"
+    log_message = f"{device.get('IP Address', '')}, {device.get('MAC Address', '')}, {device.get('Device Name', '')}, removed"
     logging.info(log_message)
 
 def initialize_json_files():
@@ -171,6 +189,10 @@ def initialize_json_files():
 
 def process_interface(interface):
     try:
+        # Start the subnet change detection thread
+        subnet_thread = threading.Thread(target=check_subnet_change, args=(interface,))
+        subnet_thread.start()
+
         while is_interface_up(interface):
             subnet = get_subnet(interface)
             current_devices = get_current_devices(subnet)
@@ -202,26 +224,25 @@ def process_interface(interface):
 
                 previous_devices[interface] = current_devices
 
-            time.sleep(10)  # Check every 10 seconds
+            time.sleep(5)  # Check every 5 seconds for new devices
 
     except KeyboardInterrupt:
         pass
 
 def main():
-
     initialize_json_files()
+    up_interfaces = []
+    down_interfaces = []
+    while True:
+        for interface in interfaces:
+            if is_interface_up(interface):
+                if interface not in up_interfaces:
+                    # If the interface is up and not in previous_devices, start a new thread
+                    thread = threading.Thread(target=process_interface, args=(interface,))
+                    thread.start()
+                    previous_devices[interface] = []
 
-    threads = []
-    for interface in interfaces:
-        thread = threading.Thread(target=process_interface, args=(interface,))
-        thread.start()
-        threads.append(thread)
-
-    try:
-        for thread in threads:
-            thread.join()
-    except KeyboardInterrupt:
-        pass
+        time.sleep(3)  # Adjust the sleep duration as needed for checking intervals
 
 if __name__ == "__main__":
     main()
