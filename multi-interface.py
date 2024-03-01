@@ -11,10 +11,11 @@ previous_devices = {}
 lock = threading.Lock()
 
 lease_file_path = "/var/lib/misc/dnsmasq.leases"
-file_storage_path = "/home/guru/ah-files"
+json_file_path = "/home/guru/ah-files"
+log_file_path = "/home/guru/log-files"
 interfaces = ["ens37","ens38"]
 
-logging.basicConfig(filename=f'{file_storage_path}/log_file.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(filename=f'{log_file_path}/log_file.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def is_interface_up(interface_name):
     try:
@@ -67,22 +68,20 @@ def check_subnet_change(interface):
     while is_interface_up(interface):
         time.sleep(3)  # Check every 3 seconds
         current_subnet = get_subnet(interface)
-        #print(current_subnet)
         if current_subnet != previous_subnet:
-            #print(time.time())
             print(f"Subnet change detected for {interface}. Clearing entries.")
             clear_entries_in_active_json(previous_subnet)
             previous_subnet = current_subnet
 
 def clear_entries_in_active_json(subnet_to_clear):
     with lock:
-        with open(f'{file_storage_path}/Active.json', 'r') as json_file:
+        with open(f'{json_file_path}/Active.json', 'r') as json_file:
             data = json.load(json_file)
 
         # Remove entries with IP addresses in the previous subnet
         data['Active Devices'] = [entry for entry in data['Active Devices'] if not is_ip_in_subnet(entry['IP Address'], subnet_to_clear)]
 
-        with open(f'{file_storage_path}/Active.json', 'w') as json_file:
+        with open(f'{json_file_path}/Active.json', 'w') as json_file:
             json.dump(data, json_file, indent=2)
 
 def is_ip_in_subnet(ip_address, subnet):
@@ -195,7 +194,7 @@ def log_device_info_add(device, json_file):
 def log_device_info_remove(device, json_file):
     Time = datetime.now().strftime('%d-%m-%Y %H:%M:%S') 
     
-    connected_time = get_connected_time(device.get('IP Address', ''), device.get('MAC Address', ''), f'{file_storage_path}/Active.json')
+    connected_time = get_connected_time(device.get('IP Address', ''), device.get('MAC Address', ''), f'{json_file_path}/Active.json')
 
     with open(json_file, 'r') as file:
         data = json.load(file)
@@ -215,13 +214,12 @@ def log_device_info_remove(device, json_file):
     logging.info(log_message)
 
 def initialize_json_files():
-    for json_file in [f'{file_storage_path}/Active.json', f'{file_storage_path}/Disconnected.json']:
+    for json_file in [f'{json_file_path}/Active.json', f'{json_file_path}/Disconnected.json']:
         with open(json_file, 'w') as file:
             json.dump({json_file.split('/')[-1].split('.')[0] + ' Devices': []}, file, indent=2)
 
 def process_interface(interface):
     try:
-        # Start the subnet change detection thread
         subnet_thread = threading.Thread(target=check_subnet_change, args=(interface,))
         subnet_thread.start()
 
@@ -233,25 +231,25 @@ def process_interface(interface):
             with lock:
                 if new_devices:
                     for device in new_devices:
-                        log_device_info_add(device, f'{file_storage_path}/Active.json')
-                        with open(f'{file_storage_path}/Disconnected.json', 'r') as json_file:
+                        log_device_info_add(device, f'{json_file_path}/Active.json')
+                        with open(f'{json_file_path}/Disconnected.json', 'r') as json_file:
                             data = json.load(json_file)
                         data['Disconnected Devices'] = [entry for entry in data['Disconnected Devices'] if
                                                         entry['IP Address'] != device['IP Address'] and
                                                         entry['MAC Address'] != device['MAC Address']]
 
-                        with open(f'{file_storage_path}/Disconnected.json', 'w') as json_file:
+                        with open(f'{json_file_path}/Disconnected.json', 'w') as json_file:
                             json.dump(data, json_file, indent=2)
 
                 if removed_devices:
                     for device in removed_devices:
-                        log_device_info_remove(device, f'{file_storage_path}/Disconnected.json')
-                        with open(f'{file_storage_path}/Active.json', 'r') as json_file:
+                        log_device_info_remove(device, f'{json_file_path}/Disconnected.json')
+                        with open(f'{json_file_path}/Active.json', 'r') as json_file:
                             data = json.load(json_file)
                         data['Active Devices'] = [entry for entry in data['Active Devices'] if
                                                   entry['IP Address'] != device['IP Address'] and
                                                   entry['MAC Address'] != device['MAC Address']]
-                        with open(f'{file_storage_path}/Active.json', 'w') as json_file:
+                        with open(f'{json_file_path}/Active.json', 'w') as json_file:
                             json.dump(data, json_file, indent=2)
 
                 previous_devices[interface] = current_devices
@@ -282,7 +280,7 @@ def main():
                     down_interfaces.append(interface)
                     if interface in up_interfaces:
                         up_interfaces.remove(interface  )
-            #print(previous_devices)
+
         time.sleep(3)  # Adjust the sleep duration as needed for checking intervals
 
 if __name__ == "__main__":
