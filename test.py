@@ -9,6 +9,7 @@ import ipaddress
 
 previous_devices = {}
 lock = threading.Lock()
+should_run = {}  # Flag to signal threads to stop
 
 lease_file_path = "/var/lib/misc/dnsmasq.leases"
 json_file_path = "/home/guru/ah-files"
@@ -16,6 +17,10 @@ log_file_path = "/home/guru/log-files"
 interfaces = ["ens37","ens38"]
 
 logging.basicConfig(filename=f'{log_file_path}/log_file.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+def stop_thread(interface):
+    should_run[interface] = False
+    logging.info(f"Stopping thread for interface: {interface}")
 
 def is_interface_up(interface_name):
     try:
@@ -201,11 +206,10 @@ def log_device_info_remove(device, json_file, interface):
     interface_data = data.get(interface, {})
     devices = interface_data.get('devices', [])
 
-    # Add a new entry to Disconnected Devices
     devices.append({
         'MAC Address': device.get('MAC Address', ''),
         'IP Address': device.get('IP Address', ''),
-        'Connected Time': device.get('Connected Time', ''),
+        #'Connected Time': device.get('Connected Time', ''),
         'Last Seen': Time,
         'Device Name': device.get('Device Name', '')
     })
@@ -227,10 +231,11 @@ def initialize_json_files():
 
 def process_interface(interface):
     try:
+        should_run[interface] = True
         subnet_thread = threading.Thread(target=check_subnet_change, args=(interface,))
         subnet_thread.start()
 
-        while is_interface_up(interface):
+        while should_run.get(interface, True) and is_interface_up(interface):
             subnet = get_subnet(interface)
             current_devices = get_current_devices(subnet)
             new_devices, removed_devices = detect_new_devices(previous_devices.get(interface, []), current_devices)
@@ -271,8 +276,13 @@ def process_interface(interface):
         pass
 
 def main():
+    initialize_json_files()
     up_interfaces = []
     down_interfaces = []
+
+    # Initialize should_run flags for each interface
+    for interface in interfaces:
+        should_run[interface] = True
 
     while True:
         for interface in interfaces:
@@ -281,8 +291,6 @@ def main():
                     up_interfaces.append(interface)
                     thread = threading.Thread(target=process_interface, args=(interface,))
                     thread.start()
-                    active_threads = threading.enumerate()
-                    print(f"Active threads: {len(active_threads)} - Thread names: {', '.join([t.name for t in active_threads])}")
                     previous_devices[interface] = []
 
                     if interface in down_interfaces:
@@ -291,7 +299,10 @@ def main():
                 if interface not in down_interfaces:
                     down_interfaces.append(interface)
                     if interface in up_interfaces:
-                        up_interfaces.remove(interface  )
+                        up_interfaces.remove(interface)
+                        stop_thread(interface)  # Signal the thread to stop
+#            active_threads = threading.enumerate()
+#            print(f"Active threads: {len(active_threads)} - Thread names: {', '.join([t.name for t in active_threads])}")
 
         time.sleep(3)  # Adjust the sleep duration as needed for checking intervals
 
