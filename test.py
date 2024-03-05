@@ -234,7 +234,9 @@ def initialize_json_files():
 def copy_active_file_data():
 
     active_json_file = os.path.join(json_file_path, 'Active.json')
-    previous_devices_json_file = os.path.join(json_file_path, 'PreviousDevices.json')
+    disconnected_json_file = os.path.join(json_file_path, 'Disconnected.json')
+    previous_active_json_file = os.path.join(json_file_path, 'PreviousActiveDevices.json')
+    previous_disconnected_json_file = os.path.join(json_file_path, 'PreviousDisconnectedDevices.json')
 
     if os.path.exists(active_json_file):
         # Read the contents of active.json
@@ -242,15 +244,15 @@ def copy_active_file_data():
             active_data = json.load(active_file)
 
         # Create or clear previous_devices.json
-        if os.path.exists(previous_devices_json_file):
-            with open(previous_devices_json_file, 'w') as previous_devices_file:
+        if os.path.exists(previous_active_json_file):
+            with open(previous_active_json_file, 'w') as previous_devices_file:
                 previous_devices_file.write("{}")
         else:
-            with open(previous_devices_json_file, 'x') as previous_devices_file:
+            with open(previous_active_json_file, 'x') as previous_devices_file:
                 previous_devices_file.write("{}")
 
         # Write contents to previous_devices.json
-        with open(previous_devices_json_file, 'w') as previous_devices_file:
+        with open(previous_active_json_file, 'w') as previous_devices_file:
             json.dump(active_data, previous_devices_file, indent=2)
 
         # Clear contents in active.json
@@ -259,11 +261,41 @@ def copy_active_file_data():
 
     else:
         # active.json doesn't exist, create previous devices file 
-        if os.path.exists(previous_devices_json_file):
-            with open(previous_devices_json_file, 'w') as previous_devices_file:
+        if os.path.exists(previous_active_json_file):
+            with open(previous_active_json_file, 'w') as previous_devices_file:
                 previous_devices_file.write("{}")
         else:
-            with open(previous_devices_json_file, 'x') as previous_devices_file:
+            with open(previous_active_json_file, 'x') as previous_devices_file:
+                previous_devices_file.write("{}")
+
+    if os.path.exists(disconnected_json_file):
+        # Read the contents of active.json
+        with open(disconnected_json_file, 'r') as disconnected_file:
+            disconnected_data = json.load(disconnected_file)
+
+        # Create or clear previous_devices.json
+        if os.path.exists(previous_disconnected_json_file):
+            with open(previous_disconnected_json_file, 'w') as previous_devices_file:
+                previous_devices_file.write("{}")
+        else:
+            with open(previous_disconnected_json_file, 'x') as previous_devices_file:
+                previous_devices_file.write("{}")
+
+        # Write contents to previous_devices.json
+        with open(previous_disconnected_json_file, 'w') as previous_devices_file:
+            json.dump(disconnected_data, previous_devices_file, indent=2)
+
+        # Clear contents in active.json
+        with open(disconnected_json_file, 'w') as disconnected_file:
+            disconnected_file.write("{}")
+
+    else:
+        # disconnected.json doesn't exist, create previous devices file 
+        if os.path.exists(previous_disconnected_json_file):
+            with open(previous_disconnected_json_file, 'w') as previous_devices_file:
+                previous_devices_file.write("{}")
+        else:
+            with open(previous_disconnected_json_file, 'x') as previous_devices_file:
                 previous_devices_file.write("{}")
 
 def process_interface(interface):
