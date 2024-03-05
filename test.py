@@ -6,6 +6,7 @@ import threading
 import time
 import logging
 import ipaddress
+import psutil
 
 previous_devices = {}
 lock = threading.Lock()
@@ -24,11 +25,15 @@ def stop_thread(interface):
 
 def is_interface_up(interface_name):
     try:
-        result = subprocess.run(['ip', 'a', 'show', interface_name], capture_output=True, text=True)
-        return 'state UP' in result.stdout    
-    except Exception as e:
-        logging.error(f"Error checking interface status: {e}")
+        stats = psutil.net_if_stats()
+        if interface_name in stats:
+            interface_info = stats[interface_name]
+            if interface_info.isup:
+                return True
+
+    except Exception:
         return False
+    return False
 
 def is_valid_subnet(subnet):
     try:
@@ -153,7 +158,7 @@ def detect_new_devices(previous_devices, current_devices):
 def get_connected_time(ip_address, mac_address, active_file):
     with open(active_file, 'r') as file:
         data = json.load(file)
-
+ 
     active_devices = data.get('Active Devices', [])
 
     for device in active_devices:
