@@ -7,6 +7,7 @@ import time
 import logging
 import ipaddress
 import psutil
+import os
 
 previous_devices = {}
 lock = threading.Lock()
@@ -155,18 +156,6 @@ def detect_new_devices(previous_devices, current_devices):
     return new_devices, removed_devices
 
 
-def get_connected_time(ip_address, mac_address, active_file):
-    with open(active_file, 'r') as file:
-        data = json.load(file)
- 
-    active_devices = data.get('Active Devices', [])
-
-    for device in active_devices:
-        if device.get('IP Address') == ip_address and device.get('MAC Address') == mac_address:
-            return device.get('Connected Time', '')
-
-    return ''
-
 def log_device_info_add(device, json_file, interface):
     Time = datetime.now().strftime('%d-%m-%Y %H:%M:%S')
 
@@ -214,7 +203,6 @@ def log_device_info_remove(device, json_file, interface):
     devices.append({
         'MAC Address': device.get('MAC Address', ''),
         'IP Address': device.get('IP Address', ''),
-        #'Connected Time': device.get('Connected Time', ''),
         'Last Seen': Time,
         'Device Name': device.get('Device Name', '')
     })
@@ -229,10 +217,54 @@ def log_device_info_remove(device, json_file, interface):
 
 
 def initialize_json_files():
-    for json_file in [f'{json_file_path}/Active.json', f'{json_file_path}/Disconnected.json']:
-        with open(json_file, 'w') as file:
-            file.write("{}")
 
+    # Initialize Active.json in write mode
+    active_json_file = os.path.join(json_file_path, "Active.json")
+    with open(active_json_file, 'w') as active_file:
+        active_file.write("{}")
+
+    # Initialize Disconnected.json in append mode (create if not exists)
+    disconnected_json_file = os.path.join(json_file_path, "Disconnected.json")
+    with open(disconnected_json_file, 'a+') as disconnected_file:
+        disconnected_file.seek(0)  # Move the cursor to the beginning to check if the file is empty
+        if not disconnected_file.read(1):
+            # If the file is empty, write an empty dictionary to initialize it
+            disconnected_file.write("{}")
+
+def copy_active_file_data():
+
+    active_json_file = os.path.join(json_file_path, 'Active.json')
+    previous_devices_json_file = os.path.join(json_file_path, 'PreviousDevices.json')
+
+    if os.path.exists(active_json_file):
+        # Read the contents of active.json
+        with open(active_json_file, 'r') as active_file:
+            active_data = json.load(active_file)
+
+        # Create or clear previous_devices.json
+        if os.path.exists(previous_devices_json_file):
+            with open(previous_devices_json_file, 'w') as previous_devices_file:
+                previous_devices_file.write("{}")
+        else:
+            with open(previous_devices_json_file, 'x') as previous_devices_file:
+                previous_devices_file.write("{}")
+
+        # Write contents to previous_devices.json
+        with open(previous_devices_json_file, 'w') as previous_devices_file:
+            json.dump(active_data, previous_devices_file, indent=2)
+
+        # Clear contents in active.json
+        with open(active_json_file, 'w') as active_file:
+            active_file.write("{}")
+
+    else:
+        # active.json doesn't exist, create previous devices file 
+        if os.path.exists(previous_devices_json_file):
+            with open(previous_devices_json_file, 'w') as previous_devices_file:
+                previous_devices_file.write("{}")
+        else:
+            with open(previous_devices_json_file, 'x') as previous_devices_file:
+                previous_devices_file.write("{}")
 
 def process_interface(interface):
     try:
@@ -281,6 +313,7 @@ def process_interface(interface):
         pass
 
 def main():
+    copy_active_file_data()
     initialize_json_files()
     up_interfaces = []
     down_interfaces = []
