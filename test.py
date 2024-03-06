@@ -140,6 +140,8 @@ def get_device_name_from_lease(ip_address, mac_address):
             values = line.strip().split()
             if len(values) >= 4 and values[2] == ip_address and values[1].lower() == mac_address:
                 device_name = values[3]
+                if device_name == "*":
+                    return "Unknown"
                 return device_name
 
     except FileNotFoundError:
@@ -269,11 +271,11 @@ def copy_active_file_data():
                 previous_devices_file.write("{}")
 
     if os.path.exists(disconnected_json_file):
-        # Read the contents of active.json
+        # Read the contents of disconnected.json
         with open(disconnected_json_file, 'r') as disconnected_file:
             disconnected_data = json.load(disconnected_file)
 
-        # Create or clear previous_devices.json
+        # Create or clear previous_disconnected_devices.json
         if os.path.exists(previous_disconnected_json_file):
             with open(previous_disconnected_json_file, 'w') as previous_devices_file:
                 previous_devices_file.write("{}")
@@ -281,11 +283,11 @@ def copy_active_file_data():
             with open(previous_disconnected_json_file, 'x') as previous_devices_file:
                 previous_devices_file.write("{}")
 
-        # Write contents to previous_devices.json
+        # Write contents to previous_disconnected_devices.json
         with open(previous_disconnected_json_file, 'w') as previous_devices_file:
             json.dump(disconnected_data, previous_devices_file, indent=2)
 
-        # Clear contents in active.json
+        # Clear contents in disconnected .json
         with open(disconnected_json_file, 'w') as disconnected_file:
             disconnected_file.write("{}")
 
