@@ -9,16 +9,41 @@ import ipaddress
 import psutil
 import os
 
+configuration_file_path = "/home/chiefnet/ChiefNet/ConfigurationFiles/SystemConfiguration.json"
+lease_file_path = "/var/lib/misc/dnsmasq.leases"
+json_file_path = "/home/guru/ah-files"
+log_file_path = "/home/guru/log-files"
+lan_interfaces = ["ens37","ens38"]
+
 previous_devices = {}
 lock = threading.Lock()
 should_run = {}  # Flag to signal threads to stop
 
-lease_file_path = "/var/lib/misc/dnsmasq.leases"
-json_file_path = "/home/guru/ah-files"
-log_file_path = "/home/guru/log-files"
-interfaces = ["ens37","ens38"]
-
 logging.basicConfig(filename=f'{log_file_path}/log_file.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+def get_lan_interfaces(file_path):
+    lan_interfaces = []
+    if not os.path.isfile(file_path):
+        return lan_interfaces
+    
+    try:
+        with open(file_path, 'r') as json_file:
+            data = json.load(json_file)
+
+            # Extract LAN interfaces
+            if "system_information" in data and "lan_interfaces" in data["system_information"]:
+                lan_interfaces = data["system_information"]["lan_interfaces"]
+            else:
+                print("LAN interfaces not found in the JSON file.")
+
+    except FileNotFoundError:
+        print(f"File not found: {file_path}")
+        return lan_interfaces
+    except json.JSONDecodeError as e:
+        print(f"Error decoding JSON: {e}")
+        return lan_interfaces
+
+    return lan_interfaces
 
 def stop_thread(interface):
     should_run[interface] = False
@@ -349,15 +374,16 @@ def process_interface(interface):
 def main():
     copy_active_file_data()
     initialize_json_files()
+    #lan_interfaces = get_lan_interfaces(configuration_file_path)
     up_interfaces = []
     down_interfaces = []
 
     # Initialize should_run flags for each interface
-    for interface in interfaces:
+    for interface in lan_interfaces:
         should_run[interface] = True
 
     while True:
-        for interface in interfaces:
+        for interface in lan_interfaces:
             if is_interface_up(interface):
                 if interface not in up_interfaces:
                     up_interfaces.append(interface)
