@@ -218,6 +218,24 @@ def log_device_info_remove(device, json_file, interface):
 
     logging.info(f"{device.get('IP Address', '')}, {device.get('MAC Address', '')}, {device.get('Device Name', '')}, removed from {interface}")
 
+def update_json_file(interface, interface_state):
+    # Load the existing JSON data
+    try:
+        with open(f'{json_file_path}/Active.json', "r") as active_file:
+            active_data = json.load(active_file)
+    except FileNotFoundError:
+        # If the file doesn't exist, initialize it with an empty dictionary
+        active_data = {}
+
+    # Update the interface state in the JSON data (without modifying devices)
+    if interface in active_data:
+        active_data[interface]["interface_state"] = interface_state
+    else:
+        active_data[interface] = {"interface_state": interface_state, "devices": []}
+
+    # Save the updated data back to the JSON file
+    with open(f'{json_file_path}/Active.json', "w") as active_file:
+        json.dump(active_data, active_file, indent=2)
 
 def initialize_json_files():
     for json_file in [f'{json_file_path}/Active.json', f'{json_file_path}/Disconnected.json']:
@@ -287,11 +305,15 @@ def main():
 
                     if interface in down_interfaces:
                         down_interfaces.remove(interface)
+                    interface_state = "up"
+                    update_json_file(interface, interface_state)
             else:
                 if interface not in down_interfaces:
                     down_interfaces.append(interface)
                     if interface in up_interfaces:
                         up_interfaces.remove(interface  )
+                    interface_state = "down"
+                    update_json_file(interface, interface_state)
 
         time.sleep(3)  # Adjust the sleep duration as needed for checking intervals
 

@@ -184,7 +184,7 @@ def detect_new_devices(previous_devices, current_devices):
 
 
 def log_device_info_add(device, json_file, interface):
-    Time = datetime.now().strftime('%d-%m-%Y %H:%M:%S')
+#    Time = datetime.now().strftime('%d-%m-%Y %H:%M:%S')
 
     with open(json_file, 'r') as file:
         data = json.load(file)
@@ -198,7 +198,7 @@ def log_device_info_add(device, json_file, interface):
         existing_entry.update({
             'MAC Address': existing_entry.get('MAC Address', ''),
             'IP Address': device.get('IP Address', ''),
-            'Connected Time': Time,
+#            'Connected Time': Time,
             'Device Name': device.get('Device Name', '')
         })
     else:
@@ -206,7 +206,7 @@ def log_device_info_add(device, json_file, interface):
         devices.append({
             'MAC Address': device.get('MAC Address', ''),
             'IP Address': device.get('IP Address', ''),
-            'Connected Time': Time,
+#            'Connected Time': Time,
             'Device Name': device.get('Device Name', '')
         })
 
@@ -219,7 +219,7 @@ def log_device_info_add(device, json_file, interface):
     logging.info(f"{device.get('IP Address', '')}, {device.get('MAC Address', '')}, {device.get('Device Name', '')}, added to {interface}")
 
 def log_device_info_remove(device, json_file, interface):
-    Time = datetime.now().strftime('%d-%m-%Y %H:%M:%S')
+#    Time = datetime.now().strftime('%d-%m-%Y %H:%M:%S')
 
     with open(json_file, 'r') as file:
         data = json.load(file)
@@ -230,7 +230,7 @@ def log_device_info_remove(device, json_file, interface):
     devices.append({
         'MAC Address': device.get('MAC Address', ''),
         'IP Address': device.get('IP Address', ''),
-        'Last Seen': Time,
+#        'Last Seen': Time,
         'Device Name': device.get('Device Name', '')
     })
 
@@ -257,6 +257,25 @@ def initialize_json_files():
         if not disconnected_file.read(1):
             # If the file is empty, write an empty dictionary to initialize it
             disconnected_file.write("{}")
+
+def update_json_file(interface, interface_state):
+    # Load the existing JSON data
+    try:
+        with open(f'{json_file_path}/Active.json', "r") as active_file:
+            active_data = json.load(active_file)
+    except FileNotFoundError:
+        # If the file doesn't exist, initialize it with an empty dictionary
+        active_data = {}
+
+    # Update the interface state in the JSON data (without modifying devices)
+    if interface in active_data:
+        active_data[interface]["interface_state"] = interface_state
+    else:
+        active_data[interface] = {"interface_state": interface_state, "devices": []}
+
+    # Save the updated data back to the JSON file
+    with open(f'{json_file_path}/Active.json', "w") as active_file:
+        json.dump(active_data, active_file, indent=2)
 
 def copy_active_file_data():
 
@@ -331,7 +350,7 @@ def process_interface(interface):
         subnet_thread = threading.Thread(target=check_subnet_change, args=(interface,))
         subnet_thread.start()
 
-        while should_run.get(interface, True) and is_interface_up(interface):
+        while should_run.get(interface, True):
             subnet = get_subnet(interface)
             current_devices = get_current_devices(subnet)
             new_devices, removed_devices = detect_new_devices(previous_devices.get(interface, []), current_devices)
@@ -393,12 +412,16 @@ def main():
 
                     if interface in down_interfaces:
                         down_interfaces.remove(interface)
+                    interface_state = "up"
+                    update_json_file(interface, interface_state)
             else:
                 if interface not in down_interfaces:
                     down_interfaces.append(interface)
                     if interface in up_interfaces:
                         up_interfaces.remove(interface)
                         stop_thread(interface)  # Signal the thread to stop
+                    interface_state = "down"
+                    update_json_file(interface, interface_state)
 #            active_threads = threading.enumerate()
 #            print(f"Active threads: {len(active_threads)} - Thread names: {', '.join([t.name for t in active_threads])}")
 
