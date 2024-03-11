@@ -35,6 +35,7 @@ def get_lan_interfaces(file_path):
                 lan_interfaces = data["system_information"]["lan_interfaces"]
             else:
                 print("LAN interfaces not found in the JSON file.")
+                return lan_interfaces
 
     except FileNotFoundError:
         print(f"File not found: {file_path}")
@@ -69,56 +70,60 @@ def is_valid_subnet(subnet):
         return False
 
 def get_subnet(interface_name):
-    max_retries = 3
-    retries = 0
+    try:
+        result = subprocess.run(["ip", "-j", "-o", "addr", "show", interface_name], capture_output=True, text=True, check=True)
+        data = json.loads(result.stdout)
+        if data and data[0]["addr_info"]:
+            local_ip = data[0]["addr_info"][0].get("local", "")
+            prefix_len = data[0]["addr_info"][0].get("prefixlen", "")
+            subnet = f"{local_ip}/{prefix_len}"
 
-    while retries < max_retries:
-        try:
-            result = subprocess.run(["ip", "-j", "-o", "addr", "show", interface_name], capture_output=True, text=True, check=True)
-            data = json.loads(result.stdout)
-            if data and data[0]["addr_info"]:
-                local_ip = data[0]["addr_info"][0].get("local", "")
-                prefix_len = data[0]["addr_info"][0].get("prefixlen", "")
-                subnet = f"{local_ip}/{prefix_len}"
-
-                if is_valid_subnet(subnet):
-                    return subnet
-                else:
-                    raise ValueError(f"Retrieved subnet is not in a valid IPv4 address format: {subnet}")
+            if is_valid_subnet(subnet):
+                return subnet
             else:
-                raise ValueError("Unable to determine subnet. No valid data found.")
-        except subprocess.CalledProcessError as e:
-            print(f"Error executing 'ip' command: {e}")
-        except (json.JSONDecodeError, IndexError, KeyError, ValueError) as e:
-            print(f"Error parsing JSON output: {e}")
-
-        # Wait for 5 seconds before retrying
-        time.sleep(5)
-        retries += 1
-        print(retries)
-
-    raise ValueError(f"Unable to retrieve a valid subnet after {max_retries} retries.")
+                return None
+                raise ValueError(f"Retrieved subnet is not in a valid IPv4 address format: {subnet}")
+        else:
+            return None
+            raise ValueError("Unable to determine subnet. No valid data found.")
+    except subprocess.CalledProcessError as e:
+        return None
+        print(f"Error executing 'ip' command: {e}")
+    except (json.JSONDecodeError, IndexError, KeyError, ValueError) as e:
+        return None
+        print(f"Error parsing JSON output: {e}")
 
 def check_subnet_change(interface):
     previous_subnet = get_subnet(interface)
-    while is_interface_up(interface):
-        time.sleep(3)  # Check every 3 seconds
-        current_subnet = get_subnet(interface)
-        if current_subnet != previous_subnet:
-            print(f"Subnet change detected for {interface}. Clearing entries.")
-            clear_entries_in_active_json(previous_subnet)
-            previous_subnet = current_subnet
+    if previous_subnet != None:
+        while is_interface_up(interface):
+            time.sleep(3)  # Check every 3 seconds
+            current_subnet = get_subnet(interface)
+            if current_subnet != None and current_subnet != previous_subnet:
+                print(f"Subnet change detected for {interface}. Clearing entries.")
+                clear_entries_in_active_json(interface)
+                previous_subnet = current_subnet
+            else:
+                pass
+    else:
+        pass
 
-def clear_entries_in_active_json(subnet_to_clear):
+def clear_entries_in_active_json(interface):
     with lock:
-        with open(f'{json_file_path}/Active.json', 'r') as json_file:
-            data = json.load(json_file)
+        try:
+            with open(f'{json_file_path}/Active.json', "r") as active_file:
+                active_data = json.load(active_file)
+        except FileNotFoundError:
+            # If the file doesn't exist, initialize it with an empty dictionary
+            active_data = {}
 
-        # Remove entries with IP addresses in the previous subnet
-        data['Active Devices'] = [entry for entry in data['Active Devices'] if not is_ip_in_subnet(entry['IP Address'], subnet_to_clear)]
+        # Update the interface state in the JSON data (without modifying devices)
+        if interface in active_data:
+            active_data[interface]["devices"] = []
 
-        with open(f'{json_file_path}/Active.json', 'w') as json_file:
-            json.dump(data, json_file, indent=2)
+        # Save the updated data back to the JSON file
+        with open(f'{json_file_path}/Active.json', "w") as active_file:
+            json.dump(active_data, active_file, indent=2)
 
 def is_ip_in_subnet(ip_address, subnet):
     try:
@@ -128,30 +133,31 @@ def is_ip_in_subnet(ip_address, subnet):
         return False
 
 def get_current_devices(subnet):
+    try:
+        result = subprocess.run(["sudo", "nmap", "-sn", subnet], check=True, capture_output=True, text=True)
 
-    result = subprocess.run(["sudo", "nmap", "-sn", subnet], capture_output=True, text=True)
+        lines = result.stdout.strip().split('\n')
+        devices = []
 
-    lines = result.stdout.strip().split('\n')
-    devices = []
-
-    for i in range(len(lines) - 3):
-        if "Nmap scan report for" in lines[i]:
-            ip_line = lines[i]
-            ip_match = re.search(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', ip_line)
-            if ip_match:
-                ip_address = ip_match.group()
-                mac_line = lines[i + 2]
-                mac_match = re.search(r'([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})', mac_line)
-                if mac_match:
-                    mac_address = mac_match.group()
-                    device_name = get_device_name_from_lease(ip_address, mac_address)
-                    devices.append({
-                        'IP Address': ip_address,
-                        'MAC Address': mac_address,
-                        'Device Name': device_name
-                    })
-    return devices
-
+        for i in range(len(lines) - 3):
+            if "Nmap scan report for" in lines[i]:
+                ip_line = lines[i]
+                ip_match = re.search(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', ip_line)
+                if ip_match:
+                    ip_address = ip_match.group()
+                    mac_line = lines[i + 2]
+                    mac_match = re.search(r'([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})', mac_line)
+                    if mac_match:
+                        mac_address = mac_match.group()
+                        device_name = get_device_name_from_lease(ip_address, mac_address)
+                        devices.append({
+                            'IP Address': ip_address,
+                            'MAC Address': mac_address,
+                            'Device Name': device_name
+                        })
+        return devices
+    except subprocess.CalledProcessError as e:
+        print(f"Error executing nmap command: {e}")
 
 def get_device_name_from_lease(ip_address, mac_address):
     
@@ -184,7 +190,7 @@ def detect_new_devices(previous_devices, current_devices):
 
 
 def log_device_info_add(device, json_file, interface):
-#    Time = datetime.now().strftime('%d-%m-%Y %H:%M:%S')
+    Time = datetime.now().strftime('%d-%m-%Y %H:%M:%S')
 
     with open(json_file, 'r') as file:
         data = json.load(file)
@@ -198,7 +204,7 @@ def log_device_info_add(device, json_file, interface):
         existing_entry.update({
             'MAC Address': existing_entry.get('MAC Address', ''),
             'IP Address': device.get('IP Address', ''),
-#            'Connected Time': Time,
+            'Connected Time': Time,
             'Device Name': device.get('Device Name', '')
         })
     else:
@@ -206,7 +212,7 @@ def log_device_info_add(device, json_file, interface):
         devices.append({
             'MAC Address': device.get('MAC Address', ''),
             'IP Address': device.get('IP Address', ''),
-#            'Connected Time': Time,
+            'Connected Time': Time,
             'Device Name': device.get('Device Name', '')
         })
 
@@ -219,7 +225,7 @@ def log_device_info_add(device, json_file, interface):
     logging.info(f"{device.get('IP Address', '')}, {device.get('MAC Address', '')}, {device.get('Device Name', '')}, added to {interface}")
 
 def log_device_info_remove(device, json_file, interface):
-#    Time = datetime.now().strftime('%d-%m-%Y %H:%M:%S')
+    Time = datetime.now().strftime('%d-%m-%Y %H:%M:%S')
 
     with open(json_file, 'r') as file:
         data = json.load(file)
@@ -230,7 +236,7 @@ def log_device_info_remove(device, json_file, interface):
     devices.append({
         'MAC Address': device.get('MAC Address', ''),
         'IP Address': device.get('IP Address', ''),
-#        'Last Seen': Time,
+        'Last Seen': Time,
         'Device Name': device.get('Device Name', '')
     })
 
@@ -258,7 +264,7 @@ def initialize_json_files():
             # If the file is empty, write an empty dictionary to initialize it
             disconnected_file.write("{}")
 
-def update_json_file(interface, interface_state):
+def update_interface_state(interface, interface_state):
     # Load the existing JSON data
     try:
         with open(f'{json_file_path}/Active.json', "r") as active_file:
@@ -352,41 +358,45 @@ def process_interface(interface):
 
         while should_run.get(interface, True):
             subnet = get_subnet(interface)
-            current_devices = get_current_devices(subnet)
-            new_devices, removed_devices = detect_new_devices(previous_devices.get(interface, []), current_devices)
+            if subnet != None:
+                current_devices = get_current_devices(subnet)
+                new_devices, removed_devices = detect_new_devices(previous_devices.get(interface, []), current_devices)
 
-            with lock:
-                if new_devices:
-                    for device in new_devices:
-                        log_device_info_add(device, f'{json_file_path}/Active.json', interface)
-                        interface_json_file = f'{json_file_path}/Disconnected.json'
-                        with open(interface_json_file, 'r') as json_file:
-                            data = json.load(json_file)
-                            data[interface] = data.get(interface, {'devices': []})
-                            data[interface]['devices'] = [entry for entry in data[interface]['devices'] if
-                                                           'IP Address' in entry and entry['IP Address'] != device['IP Address'] and
-                                                           'MAC Address' in entry and entry['MAC Address'] != device['MAC Address']]
+                with lock:
+                    if new_devices:
+                        for device in new_devices:
+                            log_device_info_add(device, f'{json_file_path}/Active.json', interface)
+                            # Remove entries in Disconnected.json file
+                            interface_json_file = f'{json_file_path}/Disconnected.json'
+                            with open(interface_json_file, 'r') as json_file:
+                                data = json.load(json_file)
+                                data[interface] = data.get(interface, {'devices': []})
+                                data[interface]['devices'] = [entry for entry in data[interface]['devices'] if
+                                                            'IP Address' in entry and entry['IP Address'] != device['IP Address'] and
+                                                            'MAC Address' in entry and entry['MAC Address'] != device['MAC Address']]
 
-                        with open(interface_json_file, 'w') as json_file:
-                            json.dump(data, json_file, indent=2)
+                            with open(interface_json_file, 'w') as json_file:
+                                json.dump(data, json_file, indent=2)
 
-                if removed_devices:
-                    for device in removed_devices:
-                        log_device_info_remove(device, f'{json_file_path}/Disconnected.json', interface)
-                        interface_json_file = f'{json_file_path}/Active.json'
-                        with open(interface_json_file, 'r') as json_file:
-                            data = json.load(json_file)
-                            data[interface] = data.get(interface, {'devices': []})
-                            data[interface]['devices'] = [entry for entry in data[interface]['devices'] if
-                                                           'IP Address' in entry and entry['IP Address'] != device['IP Address'] and
-                                                           'MAC Address' in entry and entry['MAC Address'] != device['MAC Address']]
-                        with open(interface_json_file, 'w') as json_file:
-                            json.dump(data, json_file, indent=2)
+                    if removed_devices:
+                        for device in removed_devices:
+                            log_device_info_remove(device, f'{json_file_path}/Disconnected.json', interface)
+                            # Remove entries in Active.json file
+                            interface_json_file = f'{json_file_path}/Active.json'
+                            with open(interface_json_file, 'r') as json_file:
+                                data = json.load(json_file)
+                                data[interface] = data.get(interface, {'devices': []})
+                                data[interface]['devices'] = [entry for entry in data[interface]['devices'] if
+                                                            'IP Address' in entry and entry['IP Address'] != device['IP Address'] and
+                                                            'MAC Address' in entry and entry['MAC Address'] != device['MAC Address']]
+                            with open(interface_json_file, 'w') as json_file:
+                                json.dump(data, json_file, indent=2)
 
-                previous_devices[interface] = current_devices
+                    previous_devices[interface] = current_devices
 
-            time.sleep(5)  # Check every 5 seconds for new devices
-
+                time.sleep(5)  # Check every 5 seconds for new devices
+            else:
+                pass
     except KeyboardInterrupt:
         pass
 
@@ -413,7 +423,7 @@ def main():
                     if interface in down_interfaces:
                         down_interfaces.remove(interface)
                     interface_state = "up"
-                    update_json_file(interface, interface_state)
+                    update_interface_state(interface, interface_state)
             else:
                 if interface not in down_interfaces:
                     down_interfaces.append(interface)
@@ -421,7 +431,7 @@ def main():
                         up_interfaces.remove(interface)
                         stop_thread(interface)  # Signal the thread to stop
                     interface_state = "down"
-                    update_json_file(interface, interface_state)
+                    update_interface_state(interface, interface_state)
 #            active_threads = threading.enumerate()
 #            print(f"Active threads: {len(active_threads)} - Thread names: {', '.join([t.name for t in active_threads])}")
 
