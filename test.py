@@ -9,23 +9,18 @@ import ipaddress
 import psutil
 import os
 
-class NetworkMonitor:
+class ActiveHosts:
     def __init__(self):
         self.configuration_file_path = "/home/chiefnet/ChiefNet/ConfigurationFiles/SystemConfiguration.json"
         self.lease_file_path = "/var/lib/misc/dnsmasq.leases"
-        self.json_file_path = "/home/guru/ah-files"
-        self.log_file_path = "/home/guru/log-files"
-        self.lan_interfaces = ["ens37","ens38"]
+        self.json_file_path = "/home/chiefnet/active-hosts"
+        self.log_file_path = "/home/chiefnet/active-hosts"
 
         self.previous_devices = {}
         self.lock = threading.Lock()
         self.should_run = {}  # Flag to signal threads to stop
 
         logging.basicConfig(filename=f'{self.log_file_path}/log_file.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-        # Initialize should_run flags for each interface
-        for interface in self.lan_interfaces:
-            self.should_run[interface] = True
 
     def get_lan_interfaces(self, file_path):
         lan_interfaces = []
@@ -245,6 +240,7 @@ class NetworkMonitor:
         logging.info(f"{device.get('IP Address', '')}, {device.get('MAC Address', '')}, {device.get('Device Name', '')}, removed from {interface}")
 
     def initialize_json_files(self):
+
         # Initialize Active.json in write mode
         active_json_file = os.path.join(self.json_file_path, "Active.json")
         with open(active_json_file, 'w') as active_file:
@@ -252,32 +248,66 @@ class NetworkMonitor:
 
         # Initialize Disconnected.json in append mode (create if not exists)
         disconnected_json_file = os.path.join(self.json_file_path, "Disconnected.json")
-        with open(disconnected_json_file, 'a+') as disconnected_file:
-            disconnected_file.seek(0)  # Move the cursor to the beginning to check if the file is empty
-            if not disconnected_file.read(1):
-                # If the file is empty, write an empty dictionary to initialize it
-                disconnected_file.write("{}")
+        with open(disconnected_json_file, 'w') as disconnected_file:
+            disconnected_file.write("{}")
+
 
     def update_interface_state(self, interface, interface_state):
-        # Load the existing JSON data
-        try:
-            with open(f'{self.json_file_path}/Active.json', "r") as active_file:
-                active_data = json.load(active_file)
-        except FileNotFoundError:
-            # If the file doesn't exist, initialize it with an empty dictionary
-            active_data = {}
+        # Check if the interface is down
+        if interface_state == "down":
+            try:
+                with open(f'{self.json_file_path}/Active.json', "r") as active_file:
+                    active_data = json.load(active_file)
+            except FileNotFoundError:
+                # If the file doesn't exist, initialize it with an empty dictionary
+                active_data = {}
+            # Clear the devices list in the specified interface
+            if interface in active_data:
+                cleared_devices = active_data[interface].get("devices", [])
+                active_data[interface]["interface_state"] = interface_state
+                active_data[interface]["devices"] = []
 
-        # Update the interface state in the JSON data (without modifying devices)
-        if interface in active_data:
-            active_data[interface]["interface_state"] = interface_state
-        else:
-            active_data[interface] = {"interface_state": interface_state, "devices": []}
+                # Save the updated data back to the Active.json file
+                with open(f'{self.json_file_path}/Active.json', "w") as active_file:
+                    json.dump(active_data, active_file, indent=2)
 
-        # Save the updated data back to the JSON file
-        with open(f'{self.json_file_path}/Active.json', "w") as active_file:
-            json.dump(active_data, active_file, indent=2)
+                # Load the existing JSON data from Disconnected.json
+                try:
+                    with open(f'{self.json_file_path}/Disconnected.json', "r") as disconnected_file:
+                        existing_disconnected_data = json.load(disconnected_file)
+                except FileNotFoundError:
+                    # If the file doesn't exist, initialize it with an empty dictionary
+                    existing_disconnected_data = {}
+
+                # Append the cleared data to the existing data in the corresponding interface of Disconnected.json
+                existing_disconnected_data[interface] = existing_disconnected_data.get(interface, {})
+                existing_disconnected_data[interface]["devices"] = existing_disconnected_data[interface].get("devices", []) + cleared_devices
+
+                # Save the updated data back to the Disconnected.json file
+                with open(f'{self.json_file_path}/Disconnected.json', "w") as disconnected_file:
+                    json.dump(existing_disconnected_data, disconnected_file, indent=2)
+        
+        elif interface_state == "up":
+            try:
+                with open(f'{self.json_file_path}/Active.json', "r") as active_file:
+                    active_data = json.load(active_file)
+            except FileNotFoundError:
+                # If the file doesn't exist, initialize it with an empty dictionary
+                active_data = {}
+
+            # Update the interface state in the JSON data (without modifying devices)
+            if interface in active_data:
+                active_data[interface]["interface_state"] = interface_state
+            else:
+                active_data[interface] = {"interface_state": interface_state, "devices": []}
+
+            # Save the updated data back to the JSON file
+            with open(f'{self.json_file_path}/Active.json', "w") as active_file:
+                json.dump(active_data, active_file, indent=2)
+
 
     def copy_active_file_data(self):
+
         active_json_file = os.path.join(self.json_file_path, 'Active.json')
         disconnected_json_file = os.path.join(self.json_file_path, 'Disconnected.json')
         previous_active_json_file = os.path.join(self.json_file_path, 'PreviousActiveDevices.json')
@@ -396,12 +426,16 @@ class NetworkMonitor:
     def main(self):
         self.copy_active_file_data()
         self.initialize_json_files()
-        #lan_interfaces = self.get_lan_interfaces(self.configuration_file_path)
+        lan_interfaces = self.get_lan_interfaces(self.configuration_file_path)
         up_interfaces = []
         down_interfaces = []
 
+        # Initialize should_run flags for each interface
+        for interface in lan_interfaces:
+            self.should_run[interface] = True
+
         while True:
-            for interface in self.lan_interfaces:
+            for interface in lan_interfaces:
                 if self.is_interface_up(interface):
                     if interface not in up_interfaces:
                         up_interfaces.append(interface)
@@ -425,5 +459,5 @@ class NetworkMonitor:
             time.sleep(3)  # Adjust the sleep duration as needed for checking intervals
 
 if __name__ == "__main__":
-    monitor = NetworkMonitor()
+    monitor = ActiveHosts()
     monitor.main()
