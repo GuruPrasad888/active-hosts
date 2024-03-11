@@ -125,12 +125,6 @@ def clear_entries_in_active_json(interface):
         with open(f'{json_file_path}/Active.json', "w") as active_file:
             json.dump(active_data, active_file, indent=2)
 
-def is_ip_in_subnet(ip_address, subnet):
-    try:
-        ip_network = ipaddress.IPv4Network(subnet, strict=False)
-        return ipaddress.IPv4Address(ip_address) in ip_network
-    except ValueError:
-        return False
 
 def get_current_devices(subnet):
     try:
