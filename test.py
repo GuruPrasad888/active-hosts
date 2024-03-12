@@ -287,8 +287,7 @@ class ActiveHosts:
                 with open(f'{self.json_file_path}/Disconnected.json', "w") as disconnected_file:
                     json.dump(existing_disconnected_data, disconnected_file, indent=2)
             else:
-                active_data[interface]["interface_state"] = interface_state
-                active_data[interface]["devices"] = []
+                active_data[interface] = {"interface_state": interface_state, "devices": []}
                 with open(f'{self.json_file_path}/Active.json', "w") as active_file:
                     json.dump(active_data, active_file, indent=2)
 
